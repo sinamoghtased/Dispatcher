@@ -14,13 +14,20 @@ import {
   createTheme,
 } from "@mui/material";
 
-import { DndContext, DragEndEvent } from "@dnd-kit/core";
+import {
+  DndContext,
+  DragEndEvent,
+  closestCenter,
+  useSensors,
+  useSensor,
+  PointerSensor,
+} from "@dnd-kit/core";
 
 import Logo from "@/components/logo";
 import DroppableColumn from "@/components/DroppableColumn";
-import { getCalls, routeCall } from "@/lib/api";
-import { Call } from "@/types/call";
-import { ConnectInterface, ConnectAgent } from "@/types/connect";
+import { getCalls, routeCall } from "@/lib/api"; // your existing helpers
+import type { Call } from "@/types/call";
+import type { ConnectInterface, ConnectAgent } from "@/types/connect";
 
 const CCP_URL = process.env.NEXT_PUBLIC_CONNECT_CCP!;
 
@@ -70,33 +77,49 @@ function Header(): React.JSX.Element {
           "linear-gradient(135deg, rgba(108,99,255,0.25), rgba(255,106,61,0.25))",
         border: "1px solid rgba(255,255,255,0.08)",
         backdropFilter: "blur(6px)",
+        px: { xs: 2, md: 4 },
+        py: { xs: 2, md: 3 },
       }}
     >
-      <Toolbar
+      {/* LEFT aligned on all breakpoints */}
+      <Box
         sx={{
-          minHeight: 96,
           display: "flex",
-          flexDirection: "column",
-          justifyContent: "center",
-          alignItems: "center",
-          gap: 1,
+          flexDirection: { xs: "column", md: "row" },
+          alignItems: { xs: "flex-start", md: "center" }, // left, not center
+          justifyContent: "flex-start",
+          gap: { xs: 2, md: 3 },
+          maxWidth: "100%",        // don't constrain/center
+          mx: 0,                   // remove auto-centering
+          textAlign: "left",       // left-align text by default
         }}
       >
-        <Logo width={200} height={110} radius={22} />
-        <Typography variant="h4" align="center" color="#fff">
-          911 Dispatcher Console
-        </Typography>
-        <Typography
-          variant="subtitle1"
-          align="center"
-          color="rgba(255,255,255,0.85)"
-        >
-          Agent control and prioritization, drag to assign
-        </Typography>
-      </Toolbar>
+        {/* Logo on the left */}
+        <Box sx={{ flexShrink: 0 }}>
+          <Logo width={300} height={300} radius={16} />
+        </Box>
+
+        {/* Text to the right of the logo */}
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography variant="h4" color="#fff" sx={{ fontWeight: 800, fontSize: { xs: "28px", sm: "34px", md: "40px", lg: "48px" }, // title bigger
+          lineHeight: 1.15, }}>
+            911 Dispatcher Console
+          </Typography>
+          <Typography
+            variant="subtitle1"
+            color="rgba(255,255,255,0.85)"
+            sx={{ mt: 0.5, fontSize: { xs: "14px", sm: "16px", md: "18px" }, // subtitle bigger
+            fontWeight: 500, }}
+          >
+            Agent control and prioritization, drag to assign
+          </Typography>
+        </Box>
+      </Box>
     </Paper>
   );
 }
+
+
 
 export default function Page(): React.JSX.Element {
   const [incoming, setIncoming] = React.useState<UICall[]>([]);
@@ -106,6 +129,11 @@ export default function Page(): React.JSX.Element {
   const autoAcceptOnce = React.useRef(false);
   const [agentObj, setAgentObj] = React.useState<ConnectAgent | null>(null);
   const streamsInited = React.useRef(false);
+
+  // dnd-kit sensors: nicer feel + avoids accidental drags
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  );
 
   async function refresh(): Promise<void> {
     const all = await getCalls();
@@ -183,20 +211,23 @@ export default function Page(): React.JSX.Element {
   );
 
   async function onDragEnd(e: DragEndEvent): Promise<void> {
-    const id = e.active?.id != null ? String(e.active.id) : undefined;
-    const dest = e.over?.id != null ? String(e.over.id) : undefined;
+    const id = e.active?.id != null ? String(e.active.id) : undefined;     // callId from DraggableCall
+    const dest = e.over?.id != null ? String(e.over.id) : undefined;       // column id from DroppableColumn
     if (!id || !dest) return;
 
     if (dest === "agent") {
-      await routeCall(id, "dispatcher"); // API helper maps to target=agent
+      // your helper should map to POST /calls/{id}/assign {"target":"agent"}
+      await routeCall(id, "dispatcher");
       if (agentObj) {
         try {
+          // make sure agent is routable so CCP auto-accept works
           agentObj.setState(window.connect.AgentStateType.ROUTABLE);
         } catch {}
       }
       autoAcceptOnce.current = true;
     } else if (dest === "ai") {
-      await routeCall(id, "bot"); // API helper maps to target=ai
+      // maps to {"target":"ai"}
+      await routeCall(id, "bot");
     }
     await refresh();
   }
@@ -232,8 +263,12 @@ export default function Page(): React.JSX.Element {
         <Container maxWidth="xl">
           <Header />
 
-          <DndContext onDragEnd={onDragEnd}>
-            {/* ✅ Simple responsive 3-column layout; no MUI Grid involved */}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={onDragEnd}
+          >
+            {/* 3 columns */}
             <Box
               sx={{
                 display: "grid",
@@ -256,14 +291,9 @@ export default function Page(): React.JSX.Element {
                 }}
               >
                 <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
-                  <Typography variant="subtitle1" color="#fff">
-                    Agent
-                  </Typography>
-                  <Chip
-                    label={counts.agent}
-                    size="small"
-                    sx={{ bgcolor: "rgba(255,255,255,0.08)", color: "#fff", fontWeight: 600 }}
-                  />
+                  <Typography variant="subtitle1" color="#fff">Agent</Typography>
+                  <Chip label={counts.agent} size="small"
+                    sx={{ bgcolor: "rgba(255,255,255,0.08)", color: "#fff", fontWeight: 600 }} />
                 </Box>
                 <Box sx={{ flex: 1, overflowY: "auto" }}>
                   <DroppableColumn id="agent" title="Drag here to handle now" items={agentCol} />
@@ -294,14 +324,9 @@ export default function Page(): React.JSX.Element {
                   {/* Critical */}
                   <Box>
                     <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
-                      <Typography variant="subtitle1" color="#fff">
-                        Incoming, Critical ≥ 7
-                      </Typography>
-                      <Chip
-                        label={counts.crit}
-                        size="small"
-                        sx={{ bgcolor: "rgba(255,255,255,0.08)", color: "#fff", fontWeight: 600 }}
-                      />
+                      <Typography variant="subtitle1" color="#fff">Incoming, Critical</Typography>
+                      <Chip label={counts.crit} size="small"
+                        sx={{ bgcolor: "rgba(255,255,255,0.08)", color: "#fff", fontWeight: 600 }} />
                     </Box>
                     <DroppableColumn id="incoming-critical" title="" items={critical} />
                   </Box>
@@ -309,14 +334,9 @@ export default function Page(): React.JSX.Element {
                   {/* Non critical */}
                   <Box>
                     <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
-                      <Typography variant="subtitle1" color="#fff">
-                        Incoming, Non critical ≤ 6
-                      </Typography>
-                      <Chip
-                        label={counts.non}
-                        size="small"
-                        sx={{ bgcolor: "rgba(255,255,255,0.08)", color: "#fff", fontWeight: 600 }}
-                      />
+                      <Typography variant="subtitle1" color="#fff">Incoming, Non critical</Typography>
+                      <Chip label={counts.non} size="small"
+                        sx={{ bgcolor: "rgba(255,255,255,0.08)", color: "#fff", fontWeight: 600 }} />
                     </Box>
                     <DroppableColumn id="incoming-noncritical" title="" items={nonCritical} />
                   </Box>
@@ -337,14 +357,9 @@ export default function Page(): React.JSX.Element {
                 }}
               >
                 <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
-                  <Typography variant="subtitle1" color="#fff">
-                    AI
-                  </Typography>
-                  <Chip
-                    label={counts.ai}
-                    size="small"
-                    sx={{ bgcolor: "rgba(255,255,255,0.08)", color: "#fff", fontWeight: 600 }}
-                  />
+                  <Typography variant="subtitle1" color="#fff">AI</Typography>
+                  <Chip label={counts.ai} size="small"
+                    sx={{ bgcolor: "rgba(255,255,255,0.08)", color: "#fff", fontWeight: 600 }} />
                 </Box>
                 <Box sx={{ flex: 1, overflowY: "auto" }}>
                   <DroppableColumn id="ai" title="Drag here to handoff" items={aiCol} />

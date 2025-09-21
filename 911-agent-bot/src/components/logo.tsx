@@ -2,34 +2,18 @@
 import Image from "next/image";
 import { Box } from "@mui/material";
 
-interface LogoProps {
-  width?: number;
-  height?: number;
-  radius?: number; // px
-}
+type Props = { width?: number; height?: number; radius?: number };
 
-export default function Logo({
-  width = 200,
-  height = 110,
-  radius = 20,
-}: LogoProps) {
+export default function Logo({ width = 520, height = 290, radius = 28 }: Props) {
   return (
-    <Box
-      sx={{
-        position: "relative",
-        width,
-        height,
-        borderRadius: `${radius}px`,
-        overflow: "hidden",
-      }}
-    >
+    <Box sx={{ display: "inline-block", borderRadius: `${radius}px`, overflow: "hidden" }}>
       <Image
         src="/logo.png"
         alt="911 Dispatcher logo"
-        fill
+        width={width}
+        height={height}
         priority
-        sizes={`${width}px`}
-        style={{ objectFit: "contain", backgroundColor: "transparent" }}
+        style={{ width: `${width}px`, height: `${height}px`, objectFit: "contain" }}
       />
     </Box>
   );
