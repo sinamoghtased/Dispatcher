@@ -1,29 +1,26 @@
-export type AgentStateType = {
-  ROUTABLE: string;
-  // add more if you actually call them
+export type ConnectAgent = {
+  setState: (state: any) => void;
 };
 
-export interface ConnectAgent {
-  setState: (state: string) => void;
-}
-
-export interface ConnectContact {
-  onConnecting: (callback: () => void) => void;
+export type ConnectContact = {
   accept: () => void;
-}
+  onConnecting: (handler: () => void) => void;
+};
 
-export interface ConnectInterface {
-  core: {
-    initCCP: (
-      container: HTMLElement,
-      options: {
-        ccpUrl: string;
-        loginPopup: boolean;
-        softphone: { allowFramedSoftphone: boolean; disableRingtone?: boolean };
-      }
-    ) => void;
-  };
-  agent: (callback: (agent: ConnectAgent) => void) => void;
-  contact: (callback: (contact: ConnectContact) => void) => void;
-  AgentStateType: AgentStateType;
-}
+export type ConnectCore = {
+  initCCP: (
+    container: HTMLElement,
+    opts: {
+      ccpUrl: string;
+      loginPopup?: boolean;
+      softphone?: { allowFramedSoftphone?: boolean };
+    }
+  ) => void;
+};
+
+export type ConnectInterface = {
+  core: ConnectCore;
+  AgentStateType: { ROUTABLE: any };
+  agent: (cb: (agent: ConnectAgent) => void) => void;
+  contact: (cb: (contact: ConnectContact) => void) => void;
+};

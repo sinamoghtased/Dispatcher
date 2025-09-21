@@ -7,13 +7,13 @@ import {
   Chip,
   Container,
   CssBaseline,
-  Grid,
   Paper,
   ThemeProvider,
   Toolbar,
   Typography,
   createTheme,
 } from "@mui/material";
+
 import { DndContext, DragEndEvent } from "@dnd-kit/core";
 
 import Logo from "@/components/logo";
@@ -24,15 +24,23 @@ import { ConnectInterface, ConnectAgent } from "@/types/connect";
 
 const CCP_URL = process.env.NEXT_PUBLIC_CONNECT_CCP!;
 
-// window.connect type
 declare global {
   interface Window {
     connect: ConnectInterface;
   }
 }
 
-// One constant height for all three columns
-const COLUMN_HEIGHT = 560; // px — tweak if you want
+type UICall = Call & {
+  route?: "hold" | "agent" | "ai";
+  score?: number;
+  priority?: string | number;
+  startTs?: number;
+  intent?: string;
+  type?: string;
+  lexText?: string;
+};
+
+const COLUMN_HEIGHT = 560;
 
 const theme = createTheme({
   palette: {
@@ -83,7 +91,7 @@ function Header(): React.JSX.Element {
           align="center"
           color="rgba(255,255,255,0.85)"
         >
-          Agent Control Prioritization • Drag to assign
+          Agent control and prioritization, drag to assign
         </Typography>
       </Toolbar>
     </Paper>
@@ -91,28 +99,34 @@ function Header(): React.JSX.Element {
 }
 
 export default function Page(): React.JSX.Element {
-  const [incoming, setIncoming] = React.useState<Call[]>([]);
-  const [agentCol, setAgentCol] = React.useState<Call[]>([]);
-  const [aiCol, setAiCol] = React.useState<Call[]>([]);
+  const [incoming, setIncoming] = React.useState<UICall[]>([]);
+  const [agentCol, setAgentCol] = React.useState<UICall[]>([]);
+  const [aiCol, setAiCol] = React.useState<UICall[]>([]);
   const ccpRef = React.useRef<HTMLDivElement>(null);
   const autoAcceptOnce = React.useRef(false);
   const [agentObj, setAgentObj] = React.useState<ConnectAgent | null>(null);
   const streamsInited = React.useRef(false);
 
   async function refresh(): Promise<void> {
-    const [inc, agent, ai] = await Promise.all([
-      getCalls("stage=start"),
-      getCalls("handledBy=dispatcher"),
-      getCalls("handledBy=bot"),
-    ]);
-    setIncoming(inc);
-    setAgentCol(agent);
-    setAiCol(ai);
+    const all = await getCalls();
+    const normalized = all.map((c) => ({
+      ...c,
+      score: typeof c.score === "string" ? Number(c.score) : (c.score as number | undefined),
+      startTs:
+        typeof c.startTs === "string" ? Number(c.startTs) : (c.startTs as number | undefined),
+    })) as UICall[];
+
+    setIncoming(normalized.filter((c) => c.route === "hold"));
+    setAgentCol(normalized.filter((c) => c.route === "agent"));
+    setAiCol(normalized.filter((c) => c.route === "ai"));
   }
 
   React.useEffect(() => {
     void refresh();
-    const id = setInterval(() => void refresh(), 3000);
+    const id = setInterval(
+      () => void refresh(),
+      Number(process.env.NEXT_PUBLIC_POLL_MS || 2000)
+    );
     return () => clearInterval(id);
   }, []);
 
@@ -125,7 +139,9 @@ export default function Page(): React.JSX.Element {
       loginPopup: true,
       softphone: { allowFramedSoftphone: true },
     });
+
     window.connect.agent((agent) => setAgentObj(agent));
+
     window.connect.contact((contact) => {
       contact.onConnecting(() => {
         if (autoAcceptOnce.current) {
@@ -136,27 +152,31 @@ export default function Page(): React.JSX.Element {
         }
       });
     });
+
     streamsInited.current = true;
   }
 
   const critical = React.useMemo(
     () =>
       incoming
-        .filter((c) => Number(c.priority ?? "0") >= 7)
+        .filter((c) => (c.score ?? Number(c.priority ?? 0)) >= 7)
         .sort(
           (a, b) =>
-            Number(b.priority ?? "0") - Number(a.priority ?? "0") ||
+            (b.score ?? Number(b.priority ?? 0)) -
+              (a.score ?? Number(a.priority ?? 0)) ||
             (a.startTs ?? 0) - (b.startTs ?? 0)
         ),
     [incoming]
   );
+
   const nonCritical = React.useMemo(
     () =>
       incoming
-        .filter((c) => Number(c.priority ?? "0") <= 6)
+        .filter((c) => (c.score ?? Number(c.priority ?? 0)) <= 6)
         .sort(
           (a, b) =>
-            Number(b.priority ?? "0") - Number(a.priority ?? "0") ||
+            (b.score ?? Number(b.priority ?? 0)) -
+              (a.score ?? Number(a.priority ?? 0)) ||
             (a.startTs ?? 0) - (b.startTs ?? 0)
         ),
     [incoming]
@@ -168,7 +188,7 @@ export default function Page(): React.JSX.Element {
     if (!id || !dest) return;
 
     if (dest === "agent") {
-      await routeCall(id, "dispatcher");
+      await routeCall(id, "dispatcher"); // API helper maps to target=agent
       if (agentObj) {
         try {
           agentObj.setState(window.connect.AgentStateType.ROUTABLE);
@@ -176,7 +196,7 @@ export default function Page(): React.JSX.Element {
       }
       autoAcceptOnce.current = true;
     } else if (dest === "ai") {
-      await routeCall(id, "bot");
+      await routeCall(id, "bot"); // API helper maps to target=ai
     }
     await refresh();
   }
@@ -191,8 +211,10 @@ export default function Page(): React.JSX.Element {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
+
+      {/* Connect Streams CDN */}
       <Script
-        src="/connect-streams-min.js"
+        src="https://d1k2us671qcoau.cloudfront.net/connect-streams-v2.min.js"
         strategy="afterInteractive"
         onLoad={onStreamsReady}
       />
@@ -211,184 +233,127 @@ export default function Page(): React.JSX.Element {
           <Header />
 
           <DndContext onDragEnd={onDragEnd}>
-            <Grid
-              container
-              spacing={2}
-              justifyContent="center"
-              alignItems="stretch"
+            {/* ✅ Simple responsive 3-column layout; no MUI Grid involved */}
+            <Box
+              sx={{
+                display: "grid",
+                gap: 2,
+                gridTemplateColumns: { xs: "1fr", md: "1fr 2fr 1fr" },
+                alignItems: "stretch",
+              }}
             >
-              {/* Left: Agent */}
-              <Grid item xs={12} md={3}>
-                <Paper
-                  elevation={3}
-                  sx={{
-                    height: COLUMN_HEIGHT,
-                    p: 1.5,
-                    display: "flex",
-                    flexDirection: "column",
-                    background:
-                      "linear-gradient(180deg, rgba(108,99,255,0.15), rgba(108,99,255,0.05))",
-                    border: "1px solid rgba(255,255,255,0.06)",
-                  }}
-                >
-                  <Box
-                    display="flex"
-                    alignItems="center"
-                    justifyContent="space-between"
-                    mb={1}
-                  >
-                    <Typography variant="subtitle1" color="#fff">
-                      Agent
-                    </Typography>
-                    <Chip
-                      label={counts.agent}
-                      size="small"
-                      sx={{
-                        bgcolor: "rgba(255,255,255,0.08)",
-                        color: "#fff",
-                        fontWeight: 600,
-                      }}
-                    />
-                  </Box>
-                  {/* Scrollable area */}
-                  <Box sx={{ flex: 1, overflowY: "auto" }}>
-                    <DroppableColumn
-                      id="agent"
-                      title="Drag here to handle now"
-                      items={agentCol}
-                    />
-                  </Box>
-                </Paper>
-              </Grid>
+              {/* Left, Agent */}
+              <Paper
+                elevation={3}
+                sx={{
+                  height: COLUMN_HEIGHT,
+                  p: 1.5,
+                  display: "flex",
+                  flexDirection: "column",
+                  background:
+                    "linear-gradient(180deg, rgba(108,99,255,0.15), rgba(108,99,255,0.05))",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                }}
+              >
+                <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
+                  <Typography variant="subtitle1" color="#fff">
+                    Agent
+                  </Typography>
+                  <Chip
+                    label={counts.agent}
+                    size="small"
+                    sx={{ bgcolor: "rgba(255,255,255,0.08)", color: "#fff", fontWeight: 600 }}
+                  />
+                </Box>
+                <Box sx={{ flex: 1, overflowY: "auto" }}>
+                  <DroppableColumn id="agent" title="Drag here to handle now" items={agentCol} />
+                </Box>
+              </Paper>
 
-              {/* Middle: single scrollable stack with Critical + Non-Critical */}
-              <Grid item xs={12} md={6}>
-                <Paper
-                  elevation={3}
+              {/* Middle, Incoming split by severity */}
+              <Paper
+                elevation={3}
+                sx={{
+                  height: COLUMN_HEIGHT,
+                  p: 1.5,
+                  display: "flex",
+                  flexDirection: "column",
+                  background: "rgba(255,255,255,0.02)",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                }}
+              >
+                <Box
                   sx={{
-                    height: COLUMN_HEIGHT,
-                    p: 1.5,
+                    flex: 1,
+                    overflowY: "auto",
                     display: "flex",
                     flexDirection: "column",
-                    background: "rgba(255,255,255,0.02)",
-                    border: "1px solid rgba(255,255,255,0.06)",
+                    gap: 2,
                   }}
                 >
-                  <Box
-                    sx={{
-                      flex: 1,
-                      overflowY: "auto",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 2,
-                    }}
-                  >
-                    {/* Critical section */}
-                    <Box>
-                      <Box
-                        display="flex"
-                        alignItems="center"
-                        justifyContent="space-between"
-                        mb={1}
-                      >
-                        <Typography variant="subtitle1" color="#fff">
-                          Incoming — Critical (≥7)
-                        </Typography>
-                        <Chip
-                          label={counts.crit}
-                          size="small"
-                          sx={{
-                            bgcolor: "rgba(255,255,255,0.08)",
-                            color: "#fff",
-                            fontWeight: 600,
-                          }}
-                        />
-                      </Box>
-                      <DroppableColumn
-                        id="incoming-critical"
-                        title=""
-                        items={critical}
+                  {/* Critical */}
+                  <Box>
+                    <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
+                      <Typography variant="subtitle1" color="#fff">
+                        Incoming, Critical ≥ 7
+                      </Typography>
+                      <Chip
+                        label={counts.crit}
+                        size="small"
+                        sx={{ bgcolor: "rgba(255,255,255,0.08)", color: "#fff", fontWeight: 600 }}
                       />
                     </Box>
+                    <DroppableColumn id="incoming-critical" title="" items={critical} />
+                  </Box>
 
-                    {/* Non-Critical section */}
-                    <Box>
-                      <Box
-                        display="flex"
-                        alignItems="center"
-                        justifyContent="space-between"
-                        mb={1}
-                      >
-                        <Typography variant="subtitle1" color="#fff">
-                          Incoming — Non-Critical (≤6)
-                        </Typography>
-                        <Chip
-                          label={counts.non}
-                          size="small"
-                          sx={{
-                            bgcolor: "rgba(255,255,255,0.08)",
-                            color: "#fff",
-                            fontWeight: 600,
-                          }}
-                        />
-                      </Box>
-                      <DroppableColumn
-                        id="incoming-noncritical"
-                        title=""
-                        items={nonCritical}
+                  {/* Non critical */}
+                  <Box>
+                    <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
+                      <Typography variant="subtitle1" color="#fff">
+                        Incoming, Non critical ≤ 6
+                      </Typography>
+                      <Chip
+                        label={counts.non}
+                        size="small"
+                        sx={{ bgcolor: "rgba(255,255,255,0.08)", color: "#fff", fontWeight: 600 }}
                       />
                     </Box>
+                    <DroppableColumn id="incoming-noncritical" title="" items={nonCritical} />
                   </Box>
-                </Paper>
-              </Grid>
+                </Box>
+              </Paper>
 
-              {/* Right: AI */}
-              <Grid item xs={12} md={3}>
-                <Paper
-                  elevation={3}
-                  sx={{
-                    height: COLUMN_HEIGHT,
-                    p: 1.5,
-                    display: "flex",
-                    flexDirection: "column",
-                    background:
-                      "linear-gradient(180deg, rgba(108,99,255,0.15), rgba(108,99,255,0.05))",
-                    border: "1px solid rgba(255,255,255,0.06)",
-                  }}
-                >
-                  <Box
-                    display="flex"
-                    alignItems="center"
-                    justifyContent="space-between"
-                    mb={1}
-                  >
-                    <Typography variant="subtitle1" color="#fff">
-                      AI
-                    </Typography>
-                    <Chip
-                      label={counts.ai}
-                      size="small"
-                      sx={{
-                        bgcolor: "rgba(255,255,255,0.08)",
-                        color: "#fff",
-                        fontWeight: 600,
-                      }}
-                    />
-                  </Box>
-                  {/* Scrollable area */}
-                  <Box sx={{ flex: 1, overflowY: "auto" }}>
-                    <DroppableColumn
-                      id="ai"
-                      title="Drag here to handoff"
-                      items={aiCol}
-                    />
-                  </Box>
-                </Paper>
-              </Grid>
-            </Grid>
+              {/* Right, AI */}
+              <Paper
+                elevation={3}
+                sx={{
+                  height: COLUMN_HEIGHT,
+                  p: 1.5,
+                  display: "flex",
+                  flexDirection: "column",
+                  background:
+                    "linear-gradient(180deg, rgba(108,99,255,0.15), rgba(108,99,255,0.05))",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                }}
+              >
+                <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
+                  <Typography variant="subtitle1" color="#fff">
+                    AI
+                  </Typography>
+                  <Chip
+                    label={counts.ai}
+                    size="small"
+                    sx={{ bgcolor: "rgba(255,255,255,0.08)", color: "#fff", fontWeight: 600 }}
+                  />
+                </Box>
+                <Box sx={{ flex: 1, overflowY: "auto" }}>
+                  <DroppableColumn id="ai" title="Drag here to handoff" items={aiCol} />
+                </Box>
+              </Paper>
+            </Box>
           </DndContext>
 
-          {/* CCP Panel (unchanged) */}
+          {/* CCP Panel */}
           <Paper
             elevation={3}
             sx={{

@@ -1,10 +1,11 @@
-export interface Call {
+export type Call = {
+  id?: string;         // convenience for DnD
   callId: string;
-  type?: string;
-  priority?: string; // stored as string in DynamoDB
-  stage?: string;
+  route?: "hold"|"agent"|"ai";
+  score?: number;
+  priority?: number|string;
   startTs?: number;
-  routedTs?: number;
-  resolvedTs?: number;
-  handledBy?: string;
-}
+  intent?: string;
+  lexText?: string;
+  type?: string;
+};

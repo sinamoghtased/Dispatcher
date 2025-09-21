@@ -1,32 +1,27 @@
-import { Call } from "@/types/call";
+import type { Call } from "@/types/call";
 
 const API = process.env.NEXT_PUBLIC_API_BASE!;
 
-export async function getCalls(query: string): Promise<Call[]> {
-  const r = await fetch(`${API}/calls${query ? `?${query}` : ""}`);
-  if (!r.ok) throw new Error("Failed to fetch calls");
-  return r.json();
+export async function getCalls(): Promise<Call[]> {
+  const r = await fetch(`${API}/calls`, { cache: "no-store" });
+  if (!r.ok) throw new Error(`GET /calls failed: ${r.status}`);
+  const data = (await r.json()) as { items?: Call[] };
+  return (data.items ?? []).map((x) => ({
+    ...x,
+    score: typeof (x as any).score === "string" ? Number((x as any).score) : (x as any).score,
+    startTs:
+      typeof (x as any).startTs === "string" ? Number((x as any).startTs) : (x as any).startTs,
+  }));
 }
 
-export async function routeCall(
-  callId: string,
-  handledBy: "dispatcher" | "bot"
-): Promise<{ ok: boolean; callId: string; handledBy: "dispatcher" | "bot" }> {
-  const r = await fetch(`${API}/calls/${encodeURIComponent(callId)}/route`, {
+/** UI sends 'dispatcher' or 'bot'; API expects 'agent' or 'ai' */
+export async function routeCall(callId: string, uiTarget: "dispatcher" | "bot") {
+  const target = uiTarget === "dispatcher" ? "agent" : "ai";
+  const r = await fetch(`${API}/calls/${encodeURIComponent(callId)}/assign`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ handledBy }),
+    body: JSON.stringify({ target }),
   });
-  if (!r.ok) throw new Error("Failed to route call");
-  return r.json();
-}
-
-export async function resolveCall(
-  callId: string
-): Promise<{ ok: boolean; callId: string }> {
-  const r = await fetch(`${API}/calls/${encodeURIComponent(callId)}/resolve`, {
-    method: "POST",
-  });
-  if (!r.ok) throw new Error("Failed to resolve call");
+  if (!r.ok) throw new Error(`POST /calls/${callId}/assign failed: ${r.status}`);
   return r.json();
 }
