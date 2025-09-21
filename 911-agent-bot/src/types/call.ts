@@ -1,9 +1,10 @@
 export type Call = {
-  id?: string;         // convenience for DnD
+  stage: string;
+  id?: string; // convenience for DnD
   callId: string;
-  route?: "hold"|"agent"|"ai";
+  route?: "hold" | "agent" | "ai";
   score?: number;
-  priority?: number|string;
+  priority?: number | string;
   startTs?: number;
   intent?: string;
   lexText?: string;

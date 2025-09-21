@@ -1,8 +1,9 @@
 "use client";
 import * as React from "react";
 import { useDroppable } from "@dnd-kit/core";
-import { Box, Paper, Typography } from "@mui/material";
+import { Box, Typography } from "@mui/material";
 import type { Call } from "@/types/call";
+import CallCard from "./CallCard"; // use the draggable one
 
 export default function DroppableColumn({
   id,
@@ -16,43 +17,30 @@ export default function DroppableColumn({
   const { setNodeRef, isOver } = useDroppable({ id });
 
   return (
-    <Box ref={setNodeRef}>
+    <Box
+      ref={setNodeRef}
+      sx={{
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        gap: 1,
+        border: isOver ? "2px dashed #6C63FF" : "2px dashed transparent",
+        borderRadius: 2,
+        p: 1,
+        transition: "border 0.2s ease",
+      }}
+    >
       {title ? (
-        <Typography variant="body2" sx={{ mb: 1, color: "rgba(255,255,255,0.9)" }}>
+        <Typography
+          variant="body2"
+          sx={{ mb: 1, color: "rgba(255,255,255,0.9)" }}
+        >
           {title}
         </Typography>
       ) : null}
-      <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-        {items.map((c) => (
-          <CallCard key={c.callId} call={c} highlight={isOver} />
-        ))}
-      </Box>
+      {items.map((c) => (
+        <CallCard key={c.callId} call={c} />
+      ))}
     </Box>
-  );
-}
-
-function CallCard({ call, highlight }: { call: Call; highlight: boolean }) {
-  return (
-    <Paper
-      component="div"
-      draggable
-      onDragStart={(e) => e.dataTransfer.setData("text/plain", call.callId)}
-      elevation={highlight ? 6 : 2}
-      sx={{
-        p: 1.25,
-        bgcolor: "rgba(255,255,255,0.04)",
-        border: "1px solid rgba(255,255,255,0.08)",
-        cursor: "grab",
-      }}
-    >
-      <Typography variant="body2" sx={{ fontWeight: 700 }}>
-        {call.score ?? 0} • {call.type ?? "-"} {call.intent ? `• ${call.intent}` : ""}
-      </Typography>
-      {call.lexText ? (
-        <Typography variant="caption" sx={{ opacity: 0.85 }}>
-          {call.lexText.slice(0, 120)}
-        </Typography>
-      ) : null}
-    </Paper>
   );
 }
